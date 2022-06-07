@@ -1,0 +1,419 @@
+using System;
+using System.Data;
+using System.Data.SqlClient;
+using System.Configuration;
+using System.Web;
+using System.Net;
+using System.Xml;
+using System.IO;
+using System.Collections.Generic;
+using System.Collections;
+using System.Text;
+using System.Web.Security;
+using System.Text.RegularExpressions;
+using System.Web.UI;
+using System.Web.UI.WebControls;
+using System.Web.UI.WebControls.WebParts;
+using System.Web.UI.HtmlControls;
+
+public partial class ReviewExtraction : System.Web.UI.Page
+{
+    protected void Page_Load(object sender, EventArgs e)
+    {
+
+    }
+    string content, content_text, newcontent;
+    string attributes;
+    string strcontent, result_text;
+    int la;
+    int fi, la1, fi1, len1;
+  
+    SqlConnection conn = new SqlConnection("Data Source=VAIO\\SQLEXPRESS;Initial Catalog=crawl;Integrated Security=True");
+
+    protected void Button1_Click(object sender, EventArgs e)
+    {
+
+        Lblmess.Text = "";
+       
+        txtreviews.Text = "";
+
+        string puretext = "";
+        txtContent.Text = "";
+        string head = "";
+        string url = txtlink.Text;
+        delete();
+        WebResponse response = null;
+        StreamReader reader = null;
+        if (check_site(url) <= 0)
+        {
+           
+            try
+            {
+             
+                string result;
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
+             //   HtmlTextArea htmltext = new HtmlTextArea();               
+
+                request.Method = "GET";
+                response = request.GetResponse();
+                reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8);
+                content = reader.ReadToEnd();
+                txtContent.Text = content.Substring(20);
+                
+                content_text = content;
+                int length = content.Length;
+
+                //fi = content.IndexOf("review-text");
+                //result = content.Substring(fi + 14);
+
+                fi = content.IndexOf("<p>");
+                if (fi >= 0)
+                {
+                    //result = content.Substring(fi);
+
+                    la = content.IndexOf("</html>");
+                    //header extraction 
+
+                  
+                    int st = 0;
+                        st = content.IndexOf("<head>");
+
+                    la = content.IndexOf("</head>");
+                    head = content.Substring(st);
+                    head = head.Substring(6, head.IndexOf("</head>")-6);
+                 //   head = content.Substring(content.IndexOf("<head>")+6, la - 6);
+                    while (la>= 0)
+                    {
+                        fi = content.IndexOf("<p>");
+                        if (fi > 0)
+                        {
+                            result = content.Substring(content.IndexOf("<p>")+3);
+                            //  txtreviews.Text += result;
+                            content = result;
+                            fi = result.IndexOf("<p>");
+                            la = result.IndexOf("</p>");
+
+                            string sub = "";
+                            sub = result.Substring(0, la);
+                          //  sub = sub.Substring(sub.IndexOf("</p>"));
+                            int len = la - (fi + 8);
+
+                            if (la > 1)
+                            {
+                               attributes = sub;//.Substring(sub.LastIndexOf("</p>") +3);
+                               // al.Add(attributes);
+                               puretext = sub;
+                          
+                                string temp = "";
+                                temp = attributes;
+                                attributes.Replace("<br />", " ");
+                                while (attributes.IndexOf("<br />") >= 0)
+                                {
+                                    attributes = attributes.Replace("<br />", " ");
+                                    attributes = attributes.Replace("&gt;", " ");
+                                    attributes = attributes.Replace("~", " ");
+                                    attributes = attributes.Replace("&amp", " ");
+                                    attributes = attributes.Replace("'", "");
+                                    attributes = attributes.Trim();
+                                    attributes = attributes.TrimStart();
+                                    attributes = attributes.TrimEnd();
+                                    // temp=temp.Remove(temp.IndexOf("<br />",6)); &amp;
+
+                                }
+                                txtreviews.Text += attributes + "**";
+                                Lblmess.Text = " ";
+                                try
+                                {
+                                     insert(attributes,head);
+                                     sentimentalscoring(sub);
+                                }
+                                catch (Exception ex)
+                                {
+                                    Lblmess.Text = ex.Message;
+                                }
+                            }
+                            result = result.Substring(la + 5);
+                            content = content.Substring(la);
+                             fi = content.IndexOf("<p>");
+                        }
+                        else
+                        {
+
+
+                            Lblmess.Text = "completed";
+                            break;
+                        }
+                    }
+                }
+
+                else
+                {
+                    Lblmess.Text = "No reviews are given in the current web page";
+                }
+            }
+            catch (Exception ex)
+            {
+                Lblmess.Text = ex.Message;
+                //Label3.Text = "";
+            }
+            finally
+            {
+                if (reader != null)
+                    reader.Close();
+                if (response != null)
+                    response.Close();
+            }
+
+
+
+
+        }
+
+    }
+    void insert(string review,string head )
+    {
+        try
+        {
+            SqlCommand cmdtest = new SqlCommand("insert into review values('"+head+"','"+review+"','"+txtlink.Text+"')", conn);
+
+            //SqlParameter param = new SqlParameter();
+            //param.ParameterName = "@product";
+            //param.Value = Txtproduct.Text;
+            //SqlParameter param2 = new SqlParameter();
+            //// param2.DbType = SqlDbType.Text;
+            //param.ParameterName = "@review";
+            //param.Value = attributes;
+            //SqlParameter param3 = new SqlParameter();
+            //param.ParameterName = "@link";
+            //param.Value = txtlink.Text;
+
+            //cmdtest.Parameters.Add(param,SqlDbType.Text);
+            //cmdtest.Parameters.Add(param2);
+            //cmdtest.Parameters.Add(param3);
+            cmdtest.Connection = conn;
+            if (conn.State != ConnectionState.Open)
+            {
+                conn.Open();
+            }
+            cmdtest.ExecuteNonQuery();
+
+            conn.Close();
+
+            // return count;
+        }
+        catch (Exception ex1)
+        {
+            Lblmess.Text = ex1.Message;
+            conn.Close();
+        }
+
+    }
+
+    void delete()
+    {
+        try
+        {
+            SqlCommand cmdtest = new SqlCommand("delete  from review  ", conn);
+            SqlCommand cmddeletesentiscore = new SqlCommand("delete  from sentiscore  ", conn);
+            conn.Open();
+            cmdtest.ExecuteNonQuery();
+            cmddeletesentiscore.ExecuteNonQuery();
+            conn.Close();
+
+        }
+        catch (Exception ex)
+        {
+
+        }
+    }
+
+    public int check_site(string url1)
+    {
+        try
+        {
+            //SqlCommand cmdtest = new SqlCommand("delete * from review  ", conn);//where link ='" + url1 + "'
+            int count = 0;
+            ////SqlDataReader dr;
+            //if (conn.State != ConnectionState.Open)
+            //{
+            //    conn.Open();
+            //}
+            // cmdtest.ExecuteNonQuery();
+            ////while (dr.Read())
+            ////{
+            ////    count = 1;
+            ////}
+            //conn.Close();
+            ////dr.Close();
+            return count;
+        }
+        catch (Exception ex1)
+        {
+            return -1;
+        }
+
+    }
+
+    void sentimentalscoring(string sub)
+    {
+        try
+        {
+            //sub = sub.Replace("\r\n", " ");
+            //sub = sub.Replace(" is ", " ");
+            //sub = sub.Replace(" are ", " ");
+            //sub = sub.Replace(" were ", " ");
+            //sub = sub.Replace(" this ", " ");
+            //sub = sub.Replace(" that ", " ");
+            //sub = sub.Replace(" it  ", " ");
+            //sub = sub.Replace(" I  ", " ");
+            //sub = sub.Replace(" iam  ", " ");
+            //sub = sub.Replace(" am  ", " ");
+            //sub = sub.Replace(" i ", " ");
+            //sub = sub.Replace(" he ", " ");
+            //sub = sub.Replace(" she ", " ");
+            //sub = sub.Replace(" we ", " ");
+            //sub = sub.Replace(" they ", " ");
+            //sub = sub.Replace(" we ", " ");
+            //sub = sub.Replace(" can ", " ");
+            //sub = sub.Replace(" could ", " ");
+            //sub = sub.Replace(" would ", " ");
+            //sub = sub.Replace(" will ", " ");
+            //sub = sub.Replace(" shall ", " ");
+            //sub = sub.Replace(" must ", " ");
+            //sub = sub.Replace(" the ", " ");
+            //sub = sub.Replace(" an ", " ");
+            //sub = sub.Replace(" a ", " ");
+            //sub = sub.Replace(" so ", " ");
+            //sub = sub.Replace(" yet ", " ");
+            //sub = sub.Replace(" nor ", " ");
+            //sub = sub.Replace(" or ", " ");
+            //sub = sub.Replace(" under ", " ");
+            //sub = sub.Replace(" towards ", " ");
+            //sub = sub.Replace(" in ", " ");
+            //sub = sub.Replace(" on ", " ");
+            //sub = sub.Replace(" over ", " ");
+            //sub = sub.Replace(" together ", " ");
+            //sub = sub.Replace(" was ", " ");
+
+
+            // senti words calculation
+            int sentiscore = 0;
+
+            sub = sub.ToLower();
+            sub = sub.Trim();
+            sub = sub.TrimStart();
+       //     string sub;
+            string sentiword = "", temp = "";
+            string[] sentiword1;
+            string[] subs;
+            string filenam = Server.MapPath("~/images/AFINN-111.txt");
+            foreach (string line in File.ReadLines(filenam, Encoding.UTF8))
+            {
+               // sub = TextBox1.Text;
+                sentiword = line;
+                sentiword = sentiword.Replace("\t", " ");
+                if (sentiword.IndexOf("*") >= 0)
+                {
+                    sentiword = sentiword.Remove(sentiword.IndexOf('*'), 1);
+                    sentiword = sentiword.Trim();
+                }
+                else
+                {
+
+                }
+                sentiword = sentiword.Trim();
+                sentiword1 = sentiword.Split(' ');
+
+
+                //if (sentiword1[0].ToString() == "horrible")
+                //{
+                //    if (sub.IndexOf("horrible") > 0)
+                //    {
+
+                //        Lblmess.Text = "found";
+                //    }
+                //}
+
+
+
+
+
+                if (sentiword1.Length == 2)
+                {
+                    if (sentiword1[1].ToString() != null)
+                    {
+                        sub = sub.Trim();
+                        if (sub.IndexOf('.') > 0)
+                        {
+                            subs = sub.Split('.');
+
+                            for (int j = 0; j < subs.Length; j++)
+                            {
+                                temp = subs[j].ToString().ToLower();
+
+
+                                if (temp.IndexOf(sentiword1[0].ToString()) >= 0)
+                                {
+                                    sentiscore = sentiscore + Convert.ToInt32(sentiword1[1].ToString());
+                                }
+                                else
+                                {
+
+                                }
+                            }
+                        }
+                        else
+                        {
+
+                            temp = sub.ToString().ToLower();
+
+
+                            if (temp.IndexOf(sentiword1[0].ToString()) >= 0)
+                            {
+                                sentiscore = sentiscore + Convert.ToInt32(sentiword1[1].ToString());
+                            }
+                            else
+                            {
+
+                            }
+
+                        }
+                    }
+                }
+            }
+
+            string sentiresult = " ";
+          //  Label1.Text = sentiscore.ToString();
+            if (sentiscore > 0)
+            {
+                sentiresult = "positive";
+            }
+            else if (sentiscore < 0)
+            {
+                sentiresult = "Negative";
+            }
+            else
+            {
+                sentiresult = "Neutral";
+            }
+         
+
+            SqlCommand cmdtext = new SqlCommand("insert into sentiscore values('" + sub + "','"+Convert.ToInt32( sentiscore)+"','"+sentiresult+"')", conn);
+          
+            cmdtext.Connection = conn;
+            if (conn.State != ConnectionState.Open)
+            {
+                conn.Open();
+            }
+            cmdtext.ExecuteNonQuery();
+
+            conn.Close();
+
+        }
+        catch(Exception ex)
+        {
+            Lblmess.Text = ex.Message;
+        }
+           
+    }
+}
